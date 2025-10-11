@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Supabase Cloud File Storage</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  </head>
+  <body>
+    <main class="container">
+      <h1>Cloud File Storage (Supabase)</h1>
+
+      <section id="auth-section" class="card">
+        <h2>Authentication</h2>
+        <div id="auth-forms">
+          <div class="row">
+            <input id="email" type="email" placeholder="Email" />
+            <input id="password" type="password" placeholder="Password" />
+          </div>
+          <div class="row buttons">
+            <button id="signup-btn">Sign Up</button>
+            <button id="login-btn">Log In</button>
+            <button id="logout-btn" class="hidden">Log Out</button>
+          </div>
+        </div>
+        <p id="auth-msg" class="muted"></p>
+      </section>
+
+      <section id="upload-section" class="card hidden">
+        <h2>Upload</h2>
+        <p class="muted">Files are stored per-user in the configured bucket.</p>
+        <div class="row">
+          <input id="file-input" type="file" />
+          <button id="upload-btn">Upload</button>
+        </div>
+        <progress id="upload-progress" value="0" max="100" class="hidden"></progress>
+        <p id="upload-msg" class="muted"></p>
+      </section>
+
+      <section id="files-section" class="card hidden">
+        <h2>Your Files</h2>
+        <button id="refresh-files-btn" style="margin-bottom: 10px;">Refresh Files</button>
+        <div id="files-list">No files yet.</div>
+      </section>
+
+      <footer>
+        <small>🚀 <strong>LIVE CLOUD STORAGE</strong> - Connected to Supabase! Real user authentication and file storage active.</small>
+      </footer>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>
