@@ -1,7 +1,8 @@
 const SUPABASE_URL = "https://xfdfgitzaeafklaxppze.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmZGZnaXR6YWVhZmtsYXhwcHplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk5NDQzNzAsImV4cCI6MjA3NTUyMDM3MH0._F1ezbvwLxB-KKRVg4N8DoZk4B6OHATISNdDjxvwYu4";
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Initialize the Supabase client properly
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let currentUser = null;
 let currentFiles = [];
 let uploadTasks = new Map();
@@ -45,32 +46,67 @@ async function handleAuth(isLogin = true) {
     const email = document.getElementById('email').value;
     const password = document.getElementById('password').value;
     
+    if (!email || !password) {
+        showError('Please enter both email and password');
+        return;
+    }
+
     try {
-        const { data, error } = isLogin 
-            ? await supabase.auth.signInWithPassword({ email, password })
-            : await supabase.auth.signUp({ email, password });
-        
-        if (error) throw error;
-        
         if (isLogin) {
-            showSuccess('Login successful!');
-            window.location.href = 'files.html';
+            const { data, error } = await supabase.auth.signInWithPassword({
+                email: email,
+                password: password
+            });
+            
+            if (error) throw error;
+            
+            if (data.user) {
+                showSuccess('Login successful!');
+                setTimeout(() => {
+                    window.location.href = 'files.html';
+                }, 1000);
+            }
         } else {
-            showSuccess('Account created! Please check your email to verify.');
+            const { data, error } = await supabase.auth.signUp({
+                email: email,
+                password: password,
+                options: {
+                    emailRedirectTo: window.location.origin
+                }
+            });
+            
+            if (error) throw error;
+            
+            if (data.user?.identities?.length === 0) {
+                showError('This email is already registered. Please log in instead.');
+            } else {
+                showSuccess('Account created! Please check your email for verification.');
+            }
         }
     } catch (error) {
+        console.error('Auth error:', error);
         showError(error.message);
     }
 }
 
 async function checkAuth() {
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) {
+    try {
+        const { data: { user }, error } = await supabase.auth.getUser();
+        
+        if (error) throw error;
+        
+        if (!user) {
+            window.location.href = 'index.html';
+            return false;
+        }
+        
+        currentUser = user;
+        return true;
+    } catch (error) {
+        console.error('Auth check error:', error);
         window.location.href = 'index.html';
         return false;
     }
-    currentUser = user;
-    return true;
 }
 
 async function handleLogout() {
@@ -124,17 +160,17 @@ async function loadFiles(searchQuery = '', sortBy = 'name-asc') {
 
     const filesList = document.getElementById('files-list');
     try {
-        const { data, error } = await supabase.storage
-            .from('files')
-            .list(currentUser.id, {
-                limit: 100,
-                offset: 0,
-                sortBy: { column: 'name', order: 'asc' }
-            });
+    const { data, error } = await supabase.storage
+      .from('user-files')
+      .list(currentUser.id);
 
         if (error) throw error;
 
-        // Filter and sort files
+        if (!data || data.length === 0) {
+            filesList.innerHTML = '<div class="reveal" style="text-align: center; color: var(--muted);"><i class="fas fa-folder-open fa-3x"></i><p style="margin-top: 16px;">No files found</p></div>';
+            return;
+        }
+
         currentFiles = data.filter(file => 
             file.name.toLowerCase().includes(searchQuery.toLowerCase())
         );
@@ -188,9 +224,9 @@ async function handlePreview(filePath) {
         filename.textContent = filePath;
         modal.classList.add('active');
 
-        const { data, error } = await supabase.storage
-            .from('files')
-            .download(`${currentUser.id}/${filePath}`);
+    const { data, error } = await supabase.storage
+      .from('user-files')
+      .download(`${currentUser.id}/${filePath}`);
 
         if (error) throw error;
 
@@ -223,9 +259,9 @@ async function handlePreview(filePath) {
 
 async function handleDownload(filePath) {
     try {
-        const { data, error } = await supabase.storage
-            .from('files')
-            .download(`${currentUser.id}/${filePath}`);
+    const { data, error } = await supabase.storage
+      .from('user-files')
+      .download(`${currentUser.id}/${filePath}`);
 
         if (error) throw error;
 
@@ -246,21 +282,31 @@ async function handleDelete(filePath) {
     const confirmBtn = document.getElementById('confirm-delete');
     const cancelBtn = document.getElementById('cancel-delete');
 
+    console.log('Initiating delete for:', filePath);
+
     filename.textContent = filePath;
     modal.classList.add('active');
 
     confirmBtn.onclick = async () => {
         try {
-            const { error } = await supabase.storage
-                .from('files')
-                .remove([`${currentUser.id}/${filePath}`]);
+            const fullPath = `${currentUser.id}/${filePath}`;
+            console.log('Deleting file:', fullPath);
 
-            if (error) throw error;
+      const { error } = await supabase.storage
+        .from('user-files')
+        .remove([fullPath]);
 
+            if (error) {
+                console.error('Delete error:', error);
+                throw error;
+            }
+
+            console.log('File deleted successfully:', filePath);
             modal.classList.remove('active');
             showSuccess('File deleted successfully');
-            loadFiles();
+            await loadFiles(); // Reload the file list
         } catch (error) {
+            console.error('Delete error:', error);
             showError('Error deleting file: ' + error.message);
         }
     };
@@ -309,16 +355,12 @@ async function handleUpload(files) {
     // Upload each file
     const uploads = files.map(async file => {
         try {
-            const { error } = await supabase.storage
-                .from('files')
-                .upload(`${currentUser.id}/${file.name}`, file, {
-                    cacheControl: '3600',
-                    upsert: true,
-                    onProgress: ({ loaded, total }) => {
-                        const progress = (loaded / total) * 100;
-                        updateProgress(file.name, progress);
-                    }
-                });
+      const { error } = await supabase.storage
+        .from('user-files')
+        .upload(`${currentUser.id}/${file.name}`, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
 
             if (error) throw error;
             
@@ -344,6 +386,34 @@ async function handleUpload(files) {
 
 // Event Listeners
 document.addEventListener('DOMContentLoaded', async () => {
+    // Common elements
+    const authForm = document.getElementById('auth-section');
+    const authLoginBtn = document.getElementById('login-btn');
+    const authSignupBtn = document.getElementById('signup-btn');
+    
+    // If we're on the login page
+    if (authForm && authLoginBtn && authSignupBtn) {
+        // Prevent form submission
+        authForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+        });
+
+        // Add authentication handlers
+        authLoginBtn.addEventListener('click', () => handleAuth(true));
+        authSignupBtn.addEventListener('click', () => handleAuth(false));
+
+        // Add enter key handler on password field
+        const passwordInput = document.getElementById('password');
+        if (passwordInput) {
+            passwordInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    handleAuth(true);
+                }
+            });
+        }
+
+        return; // Exit early for login page
+    }
     // Auth page
     const loginBtn = document.getElementById('login-btn');
     const signupBtn = document.getElementById('signup-btn');
